@@ -1,0 +1,37 @@
+# ri_vault — the knowledge control plane. uv project manifest.
+#
+# Recreate on any machine (home or work) with:
+#     uv sync              # creates .venv AND installs deps (uses uv.lock; deterministic)
+# or, step by step:
+#     uv venv             # create .venv
+#     uv pip install pyyaml
+#
+# Then run the commands through the venv, either:
+#     .venv/bin/python scripts/refresh.py        # explicit interpreter
+# or activate it first:
+#     source .venv/bin/activate   #  then  python scripts/refresh.py
+#
+# ── What this venv provides ──────────────────────────────────────────────────
+# Only the Python scripts' import dependency (PyYAML, for config/sources.yaml).
+# Everything the scripts `import` is stdlib; PyYAML is the sole third-party import.
+#
+# ── What this venv does NOT provide (they are external CLIs on PATH) ────────
+# The scripts call these as bare subprocess commands (PATH-resolved), so they
+# must be installed separately and on PATH — the venv cannot supply them:
+#     graphify   — a uv tool:  uv tool install graphifyy
+#     databricks — the Databricks CLI (work laptop only, for live grounding)
+# If a bare `graphify`/`databricks` call fails, the CLI isn't on PATH; that is
+# not a venv problem.
+
+[project]
+name = "ri-vault"
+version = "0.1.0"
+description = "CLI orchestration for the RI knowledge control plane (refresh / build_graph / databricks_ground / reconcile / migrate)"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",   # the ONLY third-party import in scripts/*.py — parses config/sources.yaml
+]
+
+# No [build-system]: this is a scripts-only ("virtual") project, so `uv sync`
+# installs the dependencies into .venv and does not try to install ri_vault itself
+# as a package (there is no importable package to install).

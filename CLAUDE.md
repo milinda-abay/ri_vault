@@ -51,6 +51,22 @@ Read-only against Databricks (no triggering / no monitoring writes) — the scop
 | `/status` | mode + last-refresh + graph size + drift. |
 | `/file` | Drain `Inbox/` → curated *why*. Derivables become graph nodes, not duplicated notes. |
 
+## Running the commands (uv venv)
+
+The scripts need only one third-party import, **PyYAML** (for `config/sources.yaml`);
+everything else is stdlib. `graphify` and `databricks` are external CLIs the scripts
+call as subprocesses, so they resolve via **PATH, not the venv**.
+
+Recreate the environment on any machine (home or work) with:
+    uv sync                 # creates .venv + installs PyYAML, deterministic via uv.lock
+then run the commands through it:
+    .venv/bin/python scripts/refresh.py       # or:  source .venv/bin/activate
+
+`pyproject.toml` + `uv.lock` are committed; `.venv/` is git-ignored (recreated by `uv sync`).
+If a bare `graphify`/`databricks` call fails, the CLI isn't on PATH (not a venv issue):
+`graphify` is a uv tool (`uv tool install graphifyy`); `databricks` is the Databricks CLI
+(work laptop only).
+
 ## What's on this machine right now (home)
 
 - Unified graph: `graphify-out/graph.json` (473 nodes, 886 edges, built `--code-only`
