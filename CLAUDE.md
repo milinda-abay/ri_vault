@@ -20,7 +20,8 @@ not SHA-agreement**. The one thing kept from the old system is its good axiom:
 
 | Layer | Where | Written by | Rule |
 |---|---|---|---|
-| **Derived** | `graphify-out/`, `derived/` | `refresh` (never by hand) | The unified graph + Databricks snapshots. Regenerated on demand; disposable. |
+| **Derived (committed)** | `graphify-out/`, `derived/databricks/` | `refresh` (never by hand) | The unified graph + Databricks snapshots. **Committed + synced**: work produces, home consumes; regenerated on refresh. |
+| **Local intermediates** | `derived/sources/` (git-ignored) | `build_graph` | Per-source extracts — regenerated, disposable, never committed. |
 | **Curated** | `curated/` | You | Intent, decisions, gotchas, RLS rationale, migration ladders — the *why* the code can't tell you. Links into the graph; never duplicates it. |
 | **Join** | `contracts/` | Derived | Producer→consumer schema bindings, *computed* from the catalog + graph edges — never empty. |
 
@@ -31,7 +32,7 @@ The derived layer regenerates, so there is nothing to guard against drift.
 
 | | Can query Databricks | `refresh` does |
 |---|---|---|
-| **Home** (this machine) | **No** — CLI auth is stale (`databricks catalogs list` fails) | code-only graph + **committed snapshot**; `mode: snapshot` |
+| **Home** (this machine) | **No** — CLI auth is stale (`databricks catalogs list` fails) | consumes the **committed graph + committed snapshot** (or rebuilds the code-only graph locally); `mode: snapshot` |
 | **Work laptop** | **Yes** | live catalog + jobs + pipelines → update the committed snapshot; `mode: live` |
 
 The auth probe is a **real authenticated query** (`databricks catalogs list`), **not**
