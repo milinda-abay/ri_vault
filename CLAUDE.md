@@ -70,12 +70,16 @@ If a bare `graphify`/`databricks` call fails, the CLI isn't on PATH (not a venv 
 
 ## What's on this machine right now (home)
 
-- Unified graph: `graphify-out/graph.json` (473 nodes, 886 edges, built `--code-only`
-  across `ri_ilab` + `ri_pbi_production`). Queryable now. The PBI side is thin because
-  `--code-only` is AST-based and the PBI repos are mostly TMDL/PBIR — a `--deep` pass
-  (needs an LLM backend) enriches it; the code-only graph is sufficient for query/path/explain.
-- `derived/databricks/_meta.json` = `{mode: snapshot, auth_ok: false}` — the work laptop
-  has not refreshed live here yet.
+- Unified graph: `graphify-out/graph.json` — **1,254 nodes, 1,981 links, 102 communities**.
+  `ri_ilab` is built `--code-only` (AST); `ri_pbi_production` got a `--deep` pass. Since this
+  machine has no LLM API key and graphify skips `.tmdl`/`.pbir` headless ("not classified"),
+  the 8 sub-repos' Power BI semantic models were extracted by **subagents acting as the LLM
+  backend** (one per sub-repo), growing the PBI side from 118 to 899 nodes and bridging the
+  differently-named `dim_ri_master_list` / `DIM_FACILITY` master-list tables across the sibling
+  repos. Queryable now.
+- `derived/databricks/_meta.json` = `{mode: snapshot, auth_ok: false}` — the work laptop has
+  not refreshed live here yet. (The `--deep` pass above is code/TMDL-derived, not catalog-derived —
+  it did not touch Databricks grounding.)
 - Databricks live grounding happens on the work laptop: `databricks auth login` then
   `/refresh --live`.
 
