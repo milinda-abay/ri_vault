@@ -24,7 +24,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def load_config():
     with open(os.path.join(ROOT, "config", "sources.yaml")) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    # Optional per-machine override (git-ignored): {paths: {<source name>: <path>}}
+    local = os.path.join(ROOT, "config", "sources.local.yaml")
+    if os.path.exists(local):
+        with open(local) as f:
+            lc = yaml.safe_load(f) or {}
+        paths = lc.get("paths", {})
+        cfg["azure_wrapper"] = lc.get("azure_wrapper")
+        for src in cfg.get("sources", []):
+            if src["name"] in paths:
+                src["path"] = paths[src["name"]]
+    return cfg
 
 
 def log(*a):
@@ -41,10 +52,14 @@ def extract(cfg, deep):
             continue
         out = os.path.join(out_dir, src["name"])
         log(f"extract {src['name']} ({mode}) -> {out}")
-        rc = subprocess.run(
-            ["graphify", "extract", src["path"], "--" + mode, "--out", out],
-            check=False,
-        ).returncode
+        aw = cfg.get("azure_wrapper")
+        if deep and aw:
+            # LLM backend via Azure AI Foundry (AD auth); needs `az login`
+            cmd = [aw["python"], aw["script"], src["path"], "--",
+                   "--mode", "deep", "--out", out]
+        else:
+            cmd = ["graphify", "extract", src["path"], "--" + mode, "--out", out]
+        rc = subprocess.run(cmd, check=False).returncode
         g = os.path.join(out, "graphify-out", "graph.json")
         if os.path.exists(g):
             graphs.append(g)
