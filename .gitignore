@@ -57,3 +57,4 @@ Thumbs.db
 #   contracts/        producer→consumer schema bindings (the join layer)
 #   derived/databricks/  the committed snapshot (work produces, home consumes)
 #   Inbox/            raw capture, drained by /file
+config/sources.local.yaml
