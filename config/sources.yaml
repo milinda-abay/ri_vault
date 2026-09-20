@@ -1,0 +1,39 @@
+# ri_vault sources — the single input point for the whole system.
+# refresh.py / build_graph.py / databricks_ground.py all read this.
+# No secrets here: Databricks credentials live in the OS store / ~/.databrickscfg.
+
+databricks:
+  profile: DEFAULT                 # ~/.databrickscfg profile (auth_storage=secure)
+  catalog: pen_research_infrastructure_insights_prd
+  workspace: adb-3993465269917932.12.azuredatabricks.net
+  # live vs snapshot: refresh probes `databricks --profile DEFAULT current-user`.
+  #   auth ok  -> live mode:  query the catalog, update derived/databricks/*
+  #   auth fail-> snapshot:   keep the committed snapshot, flag mode: snapshot
+  # NEVER present a stale snapshot as live.
+
+sources:
+  - name: ri_ilab
+    path: /home/mjaby/Projects/ri_ilab
+    kind: code
+    extract: code-only            # AST only — no API/LLM, no cost
+  - name: ri_pbi_production
+    path: /home/mjaby/Projects/ri_pbi_production
+    kind: code
+    extract: code-only            # walks the 8 sub-repos + root automatically
+  - name: databricks
+    kind: live-catalog            # queried by databricks_ground.py where auth allows
+
+# The unified, canonical graph (committed; consumed by /query on both machines):
+graph: graphify-out/graph.json
+
+# Cross-repo bridge — the noise-fix technique from ri_pbi_production/scripts/graphify_rls_master_list.py.
+# A single deep extract over the shared dim_ri_master_list + RLS roles, instead of a full-repo dump,
+# so the differently-named master-list tables connect into one bridging hub. (Applied where auth/API
+# is available; the code-only graph is the default and is always sufficient for query/path/explain.)
+curated_subset:
+  globs:
+    - "**/relationships.tmdl"
+    - "**/expressions.tmdl"
+    - "**/*master_list*.tmdl"
+    - "**/roles/*.tmdl"
+  include: [README.md, CLAUDE.md]
