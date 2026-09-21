@@ -1,10 +1,11 @@
 {
-  "mode": "live",
-  "auth_ok": true,
-  "captured_at": "2026-09-20T05:25:29.956816+00:00",
+  "mode": "snapshot",
+  "auth_ok": false,
+  "captured_at": "2026-09-21T01:36:23.842325+00:00",
   "captured_at_note": "the only timestamp that matters; refresh re-stamps on live success",
   "workspace": "adb-3993465269917932.12.azuredatabricks.net",
   "catalog": "pen_research_infrastructure_insights_prd",
   "probe": "databricks catalogs list",
-  "live": true
+  "live": false,
+  "note": "snapshot mode: this machine cannot query Databricks; using the committed snapshot. Refresh live on the work laptop."
 }

@@ -20,15 +20,10 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-import yaml
+from config import load_config
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "derived", "databricks")
-
-
-def load_config():
-    with open(os.path.join(ROOT, "config", "sources.yaml")) as f:
-        return yaml.safe_load(f)
 
 
 def db(*args, profile, timeout=180):

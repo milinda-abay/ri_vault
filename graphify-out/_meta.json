@@ -1,0 +1,15 @@
+{
+  "mode": "snapshot",
+  "regenerable_here": false,
+  "machine": "home",
+  "deep_pass": {
+    "at": "2026-09-20 (--deep passthrough)",
+    "by": "Claude Code subagents",
+    "method": "subagent one-off",
+    "nodes": 781
+  },
+  "nodes": 1254,
+  "deep_nodes": 781,
+  "captured_at": "2026-09-21T01:36:24.989699+00:00",
+  "note": "consumed (non-destructive): the committed graph was not rebuilt. The deep layer is a one-off subagent pass \u2014 regenerate it via the manual deep scan, not via refresh."
+}

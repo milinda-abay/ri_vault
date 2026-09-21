@@ -32,7 +32,7 @@ The derived layer regenerates, so there is nothing to guard against drift.
 
 | | Can query Databricks | `refresh` does |
 |---|---|---|
-| **Home** (this machine) | **No** — CLI auth is stale (`databricks catalogs list` fails) | consumes the **committed graph + committed snapshot** (or rebuilds the code-only graph locally); `mode: snapshot` |
+| **Home** (this machine) | **No** — CLI auth is stale (`databricks catalogs list` fails) | **consumes** the committed graph + committed snapshot (non-destructive — `refresh` never clobbers the committed graph); `mode: snapshot` |
 | **Work laptop** | **Yes** | live catalog + jobs + pipelines → update the committed snapshot; `mode: live` |
 
 The auth probe is a **real authenticated query** (`databricks catalogs list`), **not**
@@ -42,11 +42,19 @@ Every grounding write stamps `derived/databricks/_meta.json`
 `{mode, auth_ok, captured_at, workspace}` so a stale snapshot is never presented as live.
 Read-only against Databricks (no triggering / no monitoring writes) — the scope decision.
 
+**One command set, aware of the machine.** The machine is flagged by `machine: home|work`
+in the git-ignored `config/sources.local.yaml` (format in `config/sources.local.example.yaml`);
+absent, the probe decides. It selects the *domain* — home grounds Databricks as a snapshot,
+work grounds it live — while the committed graph is **consumed** (never clobbered) on both.
+The deep scan of the code repos is a recognized manual step here (no LLM backend on home),
+and `graphify-out/_meta.json` records its provenance so it is never presented as
+refresh-regenerable.
+
 ## How to use it
 
 | Command | Does |
 |---|---|
-| `/refresh` | Probe auth → build the unified graph → (live) query Databricks or (snapshot) use the committed one → write `_meta.json` → report. Flags `--check`, `--code-only` (default), `--live`. |
+| `/refresh` | Read the `machine` flag → (home) **consume** the committed graph + Databricks snapshot; (work) Databricks live → write `derived/databricks/_meta.json` + the `graphify-out/_meta.json` marker → report. The committed graph is **never clobbered**. Flags `--check`, `--code-only`, `--live`. |
 | `/query "…"` | `graphify query/path/explain/god-nodes` on `graphify-out/graph.json`. **Query the graph, never free-search notes.** |
 | `/reconcile` | Documented-vs-live (work) / documented-vs-snapshot (home) diff — the inversion of the old SHA-vs-SHA check. |
 | `/status` | mode + last-refresh + graph size + drift. |
@@ -70,18 +78,31 @@ If a bare `graphify`/`databricks` call fails, the CLI isn't on PATH (not a venv 
 
 ## What's on this machine right now (home)
 
-- Unified graph: `graphify-out/graph.json` — **1,254 nodes, 1,981 links, 102 communities**.
-  `ri_ilab` is built `--code-only` (AST); `ri_pbi_production` got a `--deep` pass. Since this
-  machine has no LLM API key and graphify skips `.tmdl`/`.pbir` headless ("not classified"),
-  the 8 sub-repos' Power BI semantic models were extracted by **subagents acting as the LLM
-  backend** (one per sub-repo), growing the PBI side from 118 to 899 nodes and bridging the
-  differently-named `dim_ri_master_list` / `DIM_FACILITY` master-list tables across the sibling
-  repos. Queryable now.
-- `derived/databricks/_meta.json` = `{mode: snapshot, auth_ok: false}` — the work laptop has
-  not refreshed live here yet. (The `--deep` pass above is code/TMDL-derived, not catalog-derived —
-  it did not touch Databricks grounding.)
-- Databricks live grounding happens on the work laptop: `databricks auth login` then
-  `/refresh --live`.
+**Which computer am I?** The flag is `machine: home|work` in the git-ignored
+`config/sources.local.yaml` (format documented in `config/sources.local.example.yaml`);
+when absent, `refresh` falls back to the Databricks auth probe. This is **home**: it
+can't reach Databricks, so it's the **deep-scan domain** (the code repos). One command
+set, aware of the machine — GitHub is the git-synced **union** of both.
+
+- **Unified graph**: `graphify-out/graph.json` — **1,254 nodes** (473 AST + 781 deep),
+  1,981 links, 102 communities. `ri_ilab` is AST (`--code-only`); the `ri_pbi_production`
+  Power BI semantic models got a **`--deep` pass**. Since this machine has **no LLM
+  backend** (no key, not `az`-logged-in) and graphify skips `.tmdl`/`.pbir` headless
+  ("not classified"), that pass was **one-off, by subagents as the LLM backend** (one per
+  sub-repo) — it grew the PBI side from 118 to 899 nodes and bridges the differently-named
+  `dim_ri_master_list` / `DIM_FACILITY` master-list tables. **`refresh` consumes this
+  graph, it does not rebuild it** — the deep scan is a manual step (a real backend on home
+  would put it in `refresh` and flip `regenerable_here` to true).
+- **Graph marker**: `graphify-out/_meta.json` = `{mode: snapshot, regenerable_here: false}`
+  — the honesty marker (mirrors the Databricks one). A one-off deep pass is never
+  presented as refresh-regenerable; `/status` and `/reconcile` read it.
+- **Databricks**: `derived/databricks/_meta.json` = `{mode: live, auth_ok: true}` — the
+  last **live** capture, committed **from the work laptop**. This home machine is in
+  **snapshot mode**: it consumes that committed snapshot (and re-stamps `_meta.json` to
+  `snapshot` on refresh; the committed `*.json` snapshots are preserved). Live grounding
+  happens on the work laptop: `databricks auth login` then `/refresh`.
+- **Division of labor**: home = the code graph (deep scan — a manual step here); work =
+  the Databricks layer; **GitHub is the union** of both.
 
 ## Layout
 
