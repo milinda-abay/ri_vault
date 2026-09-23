@@ -22,6 +22,7 @@ Today those 15 tables are built by the PURE section of a single unversioned SQL 
 | `lakehouse_bim_prd.research_organisation.simplified_research_organisation` | BIM reference |
 | `lakehouse_bim_prd.external_organisation.external_organisation` | BIM reference — refreshes on a different cycle than `ri_lakehouse`, see [[#Validation and the explained-drift rule]] |
 | `lakehouse_bim_prd.country.country` | BIM reference |
+| `lakehouse_bim_prd.research_award.research_award` (+ `research_award_funding`) | BIM curated award entity — the source of `dim_upm_award` since 2026-09-23, see [[#dim_upm_award moved to BIM, 2026-09-23]] |
 
 ## Table inventory
 
@@ -32,7 +33,7 @@ Today those 15 tables are built by the PURE section of a single unversioned SQL 
 | `classification` | `classification_bronze` | `CLASSIFICATION_ID` |
 | `dim_research_organisation` | `dim_research_organisation_bronze` | `RESEARCH_ORGANISATION_ID` |
 | `dim_upm_application` | `dim_application_bronze` | `APPLICATION_ID` |
-| `dim_upm_award` | `dim_upm_award_bronze` | `AWARD_ID` (legacy PK `upm_award_pk`) |
+| `dim_upm_award` | `dim_upm_award_bronze` | `AWARD_ID` (legacy PK `upm_award_pk`) — built from BIM `research_award`, not ported |
 | `dim_external_organisation` | `dim_external_organisation_bronze` | `EXTERNAL_ORGANISATION_ID` (legacy PK) |
 | `dim_country` | `dim_country_bronze` | `(_SURROGATE_KEY, CLASSIFICATION_ID)` — either can be null from the FULL JOIN, never both |
 | `dim_equipment` | `dim_equipment_bronze` | `EQUIPMENT_ID` |
@@ -49,8 +50,8 @@ Today those 15 tables are built by the PURE section of a single unversioned SQL 
 
 Four dependency waves:
 
-1. `classification`, `dim_research_organisation`
-2. `dim_upm_application`, `dim_upm_award`, `dim_external_organisation`, `dim_country`, `dim_equipment`, `dim_person`, `dim_externalperson`, `dim_journal`, `dim_publication`, `fact_journal_metrics`
+1. `classification`, `dim_research_organisation`, `dim_upm_award` (BIM-only, no in-layer dependency since 2026-09-23)
+2. `dim_upm_application`, `dim_external_organisation`, `dim_country`, `dim_equipment`, `dim_person`, `dim_externalperson`, `dim_journal`, `dim_publication`, `fact_journal_metrics`
 3. `fact_application` (needs `dim_external_organisation`, `dim_upm_award`); `fact_publication` (needs `dim_equipment`, `dim_publication`)
 4. `dim_applicant_role` (needs `fact_application`, `classification`)
 
@@ -81,7 +82,8 @@ Each build has a matching `<logical name>_bronze_validate` notebook, parameteris
 **The mismatch this exists for:** the BIM external organisation table refreshes at about 06:00 Sydney time (`_START_TIMESTAMP` 20:00 UTC), but `ri_lakehouse` builds at 01:02. So `ri_lakehouse` always holds the *previous* BIM refresh, and a bronze build run after 06:00 holds the newer one. Exact parity is only possible for a bronze build run between 01:02 and 06:00.
 
 - **`dim_external_organisation_bronze_validate`** passes a mismatch only when every differing row is explained. The cutoff is `max(_START_TIMESTAMP)` in the reference table: a row only in bronze must have started after the cutoff; a row only in the reference must be expired in BIM (`_ROW_ACTIVE_FLAG='N'`) with an expiry after the cutoff.
-- **`fact_application_bronze_validate`** passes a mismatch only when every differing row's `FUNDER_ID` is among the external-org ids that differ between the two layers.
+- **`fact_application_bronze_validate`** passes a mismatch only when every differing row's `FUNDER_ID` is among the external-org ids that differ between the two layers. Since 2026-09-23 its parity is a **set** comparison over the non-award columns only, plus a separate award-link check — see below.
+- **`dim_upm_award_bronze_validate`** no longer checks parity with `ri_lakehouse`; it recomputes the table from BIM and fails on any difference, printing the `ri_lakehouse` delta for information only.
 - `dim_applicant_role` reaches exact parity despite sitting downstream of this drift, because the drift only touches funder-side columns.
 
 ## Deviations from the conventions
@@ -133,6 +135,26 @@ Ported unfixed, because scope is a re-implementation, not a rewrite:
 > | dim_applicant_role | dim_applicant_role_bronze | 7 | exact |
 >
 > All 899 differing rows in `dim_external_organisation` were explained by the cutoff rule above. `dim_applicant_role` reached exact parity despite the upstream funder drift, because that drift only touches funder-side columns.
+
+## dim_upm_award moved to BIM, 2026-09-23
+
+`dim_upm_award` is no longer a port of the `ri_lakehouse_prod` award cell (PSA `upm_award` → `upm_awardcluster` → `upm_project` + BIM org + `classification`). It is built from `lakehouse_bim_prd.research_award.research_award` (active rows) — the curated award entity — keeping the table name so `ri_pbi_non_ilab_utilisation` binds unchanged.
+
+**Why it's safe (probe, 2026-09-23):** every one of the 40,903 PSA-built `AWARD_ID`s is an active BIM award (BIM has 10 more); `AWARDED_DATE` equals `AWARD_DATE` on all of them; `AWARD_STATUS` differs on 4 (BIM newer); `SUM(research_award_funding.AWARDED_AMOUNT_IN_AUD)` equals the legacy `TOTAL_AWARDED_AMOUNT` on 40,899.
+
+| Report-bound column | Now |
+|---|---|
+| `AWARD_ID`, `APPLICATION_ID` | BIM strings cast to `BIGINT` (the build refuses a non-numeric id) |
+| `AWARD_DATE` | BIM `AWARDED_DATE` |
+| `AWARD_STATUS` | BIM `AWARD_STATUS` |
+| `AWARD_TYPE_CLASSIFICATION` | BIM `AWARD_TYPE` — was the constant `Award`; now Grant / Contract Research / Fellowship / … (visible change in the report) |
+| `TOTAL_AWARDED_AMOUNT` | `SUM(AWARDED_AMOUNT_IN_AUD)` over active `research_award_funding`, `DECIMAL(32,4)` |
+
+Every other BIM column is carried under its own name, with BIM lineage (`_START_TIMESTAMP`, `_EXPIRATION_TIMESTAMP`, `_ROW_ACTIVE_FLAG`, `_SURROGATE_KEY`). **Dropped:** `PROJECT_ID`, `AWARD_OWNER_ID`/`AWARD_OWNER`, the PSA `*_STA_DAT`/`*_END_DAT` ranges, `TOTAL_ACADEMIC_OWNERSHIP` — none were read by the report.
+
+**Knock-on in `fact_application`:** BIM has no award→project link, so the award join moved from `project_id` to `application_id` (40,858 applications match vs 40,531 by project). `AWARD_TOTAL_ACADEMIC_OWNERSHIP` was dropped. The award fan-out, and so the row count, now differs from `ri_lakehouse` by design — which is why the validate compares non-award columns as a set and checks `(APPLICATION_ID, AWARD_ID)` pairs against `dim_upm_application ⋈ dim_upm_award` separately.
+
+Before the change: bronze `fact_application` 713,078 rows, 305,382 with an award (39,649 distinct awards).
 
 ## Cutting the report over
 

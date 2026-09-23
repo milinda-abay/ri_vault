@@ -8,7 +8,7 @@ The table set is the report's, not bronze's: 12 silver tables have a same-name b
 
 **Scope decisions (2026-09-18):**
 
-1. All 15 tables come across: 8 with ported preprocess logic, 7 pass-throughs — one schema the report can cut over to as a whole, not a partial rebuild.
+1. All 15 tables come across: 8 with ported preprocess logic, 7 pass-throughs (7 ported + 8 pass-throughs since `dim_upm_award` became a pass-through on 2026-09-23) — one schema the report can cut over to as a whole, not a partial rebuild.
 2. `facility_id` is dropped from the application dimension. The report built it in M from three sources — MMIC (title contains "MMIC"), MFP (an Excel workbook on the M: Google Shared Drive, `PQMS4-MFP-eFRM-0032_MFP_budget_invoices_records.xlsx`, via `combined_years`), and CDCO (a Monday Google Sheet, `cdco_jobs`) — and only MMIC is derivable from Databricks data today; MFP and CDCO have no bronze tables. `facility_id` returns once those exist. M quirk carried in the note rather than the code: tags concatenate with no delimiter, e.g. `"MMICMFP"`.
 3. Naming follows bronze where a bronze table already exists (`dim_upm_application`, not the report's `dim_application`); tables newly derived in silver take the report's own names (`dim_researcher`, `dim_research_group`, `dim_org_type`). This keeps "same name across layers" true going forward from wherever a name first appears.
 4. Silver conventions win over M fidelity where they conflict: every non-`_` string column is trimmed and uppercased (the report only uppercased external-organisation columns), ids keep bronze's types (M casts `EXTERNAL_ORGANISATION_ID` to text; bronze is already `STRING`), and columns are `UPPER_SNAKE_CASE`. Some report visuals will change appearance at cutover — names rendering uppercase, for one — and that's accepted rather than patched around.
@@ -22,7 +22,7 @@ Notebooks live under `/Workspace/Users/milinda.abayawardana@monash.edu/ri_pure/`
 | Silver table | Source | Ports (M step) | Key |
 |---|---|---|---|
 | `dim_upm_application` | `pure_bronze.dim_upm_application` | `preprocess_upm_application` | `APPLICATION_ID` |
-| `dim_upm_award` | `pure_bronze.dim_upm_award` | `preprocess_upm_award` | `AWARD_ID` |
+| `dim_upm_award` | `pure_bronze.dim_upm_award` | pass-through (was `preprocess_upm_award` until 2026-09-23 — bronze now comes from BIM `research_award`, see [[Pure Bronze Pipeline#dim_upm_award moved to BIM, 2026-09-23]]) | `AWARD_ID` |
 | `dim_research_organisation` | `pure_bronze.dim_research_organisation` | `preprocess_research_organisation` | `RESEARCH_ORGANISATION_ID` |
 | `dim_external_organisation` | `pure_bronze.dim_external_organisation` | `preprocess_external_organisation` | `EXTERNAL_ORGANISATION_ID` (string) |
 | `dim_org_type` | `pure_silver.dim_external_organisation` | `preprocess_org_type` | `EXTERNAL_ORGANISATION_TYPE` |
@@ -59,7 +59,7 @@ The point of sharing it: validates prove parity by applying the *same* normalisa
 ## Validation
 
 - **Pass-through tables** validate every column: schema equality by name/type/position, plus `check_multiset_parity` against `normalise_strings(bronze)` in both directions.
-- **Transforming 1:1 tables** (`dim_upm_application`, `dim_upm_award`, `dim_research_organisation`, `dim_external_organisation`) validate row count plus key-set parity against bronze, plus per-table rule assertions (see Gotchas below).
+- **Transforming 1:1 tables** (`dim_upm_application`, `dim_research_organisation`, `dim_external_organisation`; `dim_upm_award` until 2026-09-23, now a pass-through) validate row count plus key-set parity against bronze, plus per-table rule assertions (see Gotchas below).
 - **`fact_application`** has no key, so it validates exact multiset parity against an expected frame the validate recomputes independently from bronze (same two derivations, same normalisation).
 - **Derived tables** validate set equality against what they derive from: `dim_org_type` against the distinct types of silver `dim_external_organisation` plus `MONASH UNIVERSITY`; `dim_research_group` against the PCI projection of silver `fact_application`; `dim_researcher` by key uniqueness and row count = `dim_person` + `dim_externalperson`.
 
@@ -77,6 +77,8 @@ This follows [[Databricks Conventions]]'s silver-validate rule: a pass-through s
 | `calendar`, `dim_application_status` out of scope | Both are report-generated static tables with no upstream source to port. |
 
 ## Gotchas
+
+- **`AWARD_TYPE_CLASSIFICATION` changed meaning (2026-09-23):** it now carries BIM `AWARD_TYPE` (GRANT, CONTRACT RESEARCH, FELLOWSHIP, …) instead of the constant `AWARD`, so report visuals on it will show real types. `fact_application`'s award rows now come from an `application_id` join — see [[Pure Bronze Pipeline#dim_upm_award moved to BIM, 2026-09-23]].
 
 - **`FULL_NAME` (dim_researcher):** normalising each name part and then concatenating is not the same as concatenating raw parts and then trimming/uppercasing the whole string, whenever a part carries leading/trailing whitespace next to the join point — the second form leaves a doubled or ragged space. The two definitions disagree on 3 `dim_person` rows and 11,601 `dim_externalperson` rows at probe time (11,558 against the built table, per the validate). Silver normalises parts first, then joins with exactly one space, and is null if either part is null — matching M's `&` operator. The validate checks this and reports the alternative definition's mismatch count.
 - **ANZSIC split (dim_external_organisation):** `EXTERNAL_ORGANISATION_PRIMARY_ANZSIC2006_CODE` (e.g. `"M 69 Professional, Scientific and Technical Services …"`) splits on space into `EXTERNAL_ORGANISATION_ANZSIC2006_DIVISION_CODE` (string, token 1, e.g. `"M"`) and `EXTERNAL_ORGANISATION_ANZSIC2006_SUBDIVISION_CODE` (`BIGINT` via `try_cast`, token 2, e.g. `69`) — replacing the report's unused `" - Copy.1"` / `" - Copy.2"` columns (no visual referenced them). 157 of 56,794 rows have a null code and both derived columns are null for those; 0 of the 56,637 non-null codes fail the integer parse on token 2.
